@@ -1,0 +1,116 @@
+ISDAID=A00000006203010801;
+kenc1=kmac1=kdek1=505152535455565758595a5b5c5d5e5f;
+senc=;smac=;sdek=;pre_mac=;
+ENC=404142434445464748494a4b4c4d4e4f;
+MAC=404142434445464748494a4b4c4d4e4f;
+DEK=404142434445464748494a4b4c4d4e4f;
+g_ScpKeyVer=00;g_SecLevel=00;
+tokenKey_N=E82158B1119116B5A066B80DE3BC47CBB01FB7C1DC2AA0B31BBEB987BA0770F8AD3DC5BA3B95AB660ACAAE56B5A690AE7A8BDCAB92BAC06F71DC3DE36432E13214C3595CE27A0F4C775F56A3024869734D57A4753DD91CAA09B8025F6F9D991FD59A322C52FB3DBEC43C531D35C6DEE0E8E0EC67124377F6A3BE607250760FC9;
+tokenKey_D=32E28674F04F200D89FF2267270E31A5D8B2A73F37925F9E4B9D7441A8B9B35DCBEA2FE32A671D86B5A466F1AA89BC0B07618BEACF7421357CDDE4F229178F2E169B825390BD16503F9B3AB58C79CE69AD595EFFC17304D353756242F9DE622A898426EDCBE88B8B0719069C5A57D0CE5FE36662DE37E6BBC5F548AF2E9D98E5;
+tokenKey_E=010001;
+tokenKey_P=FB10B9E4105283E128D9B2791A0D5CC2BF2CF29915EBD619A842D1E6596A90127A00BAAAC4F66CEC705E373AA5A9251F2463B412E9D8716B775FB5C9FDF78E8D;
+tokenKey_Q=ECB15876D65B6F26C1A1D932D84579DA3C2B56C71020E04A9EFC23245B5F7453C5DF3217494F39FDC17AA7831F4F9AB3F5586E60061A0BA67951692AB61E452D;
+tokenKey_Ver=70;
+dapKey_N=C8949C50D74FB178DB9BAF9FD6AAC75B5675FABEEE83210BBF481A23DE2FA12EFD1B9B4ECC0D02F076FA214EE96DE4FEEDF79951E1FBFBA1811761B16743279FE139B7AFCC5A0E058F85C6D32D2F486068DDF5A63C01805CF263F27129B5A188F5ADF832C6A50AAD5117D59D1D9138DB2C73D9BCC4DD70EB3E02521A6C112D84DE2FEF95A85AA546447F6102DDFD1C33EB30AFC802D03DC6286EA29DE4346987901084CC93BA6666D866B889A838B415BE56594C894AFA91E677EBE9E69AB730755FC343EE7993C9D72F5D6677A78F0710BABAA659FCCB71FA514F4A9FDE7661D6F98E8E7AE3DAAA5199885019FEFAE790AB2BFE075105DDBE0F63E0313AF88D;
+dapKey_E=03;
+dapKey_Ver=73;
+func Select(AID)
+{
+	send(00a40400+totlv(,AID));
+}
+func SCP02_Extern(ver=00,level=00)
+{
+	g_ScpKeyVer = ver;
+	g_SecLevel = level;
+	rnd = b95c2b8c2e671007;
+	init_update=8050 + ver + 0008 + rnd;
+	res = send(init_update);
+	senc = des_encrypt_cbc(0000000000000000,0182+res[#12:#14]+000000000000000000000000,ENC);
+	smac = des_encrypt_cbc(0000000000000000,0101+res[#12:#14]+000000000000000000000000,MAC);
+	sdek = des_encrypt_cbc(0000000000000000,0181+res[#12:#14]+000000000000000000000000,DEK);
+	//Host Cryptogram
+	hostCrypto = des_encrypt_cbc(0000000000000000,res[#12:#20]+rnd + 80000000000000000000000000000000,senc);
+	pre_mac = des_mac(0000000000000000,8482 + level + 0010 + hostCrypto[#16:#24],smac);
+	ext_auth=8482 + level + 0010 + hostCrypto[#16:#24] + pre_mac;
+	send(ext_auth);
+}
+func Put_SCP02_Key(ver,keyenc,keymac,keydek)
+{
+	encchk=des_encrypt_ecb(0000000000000000,keyenc);
+	keyenc=des_encrypt_ecb(keyenc,sdek);
+	macchk=des_encrypt_ecb(0000000000000000,keymac);
+	keymac=des_encrypt_ecb(keymac,sdek);
+	dekchk=des_encrypt_ecb(0000000000000000,keydek);
+	keydek=des_encrypt_ecb(keydek,sdek);
+	send(80d8000117+ver+8010+keyenc+totlv(,encchk[:#3]));
+	send(80d8000217+ver+8010+keymac+totlv(,macchk[:#3]));
+	send(80d8000317+ver+8010+keydek+totlv(,dekchk[:#3]));
+}
+
+func Put_Key_RSA_Public_Key(ver,key,format=#0)
+{
+	if(len(key) == #256){
+		RSA_E=03;
+		if(g_SecLevel == 01){
+			send(84D88001FF+ver+A1820100 + RSA_N_2048[:#-6]);
+			pre_mac = des_mac(0000000000000000,pre_mac+84D80001000111 +ver+A1820100 + key + A001 + RSA_E  + 00,smac);
+			send(84D80001+totlv(,key[#-6:]+A001+RSA_E +00+ pre_mac));
+		}
+		else{
+			send(80D88001+totlv(,ver+A1820100 + key[:#-6]));
+			send(80D80001+totlv(,key[#-6:]+A001+RSA_E +00));
+		}
+	}
+	else{
+		RSA_E=010001;
+		if(g_SecLevel == 01){
+			data = ver+A18180 + key + A001 + RSA_E  + 00;
+			pre_mac = des_mac(0000000000000000,pre_mac+84D80001+itoa(len(data) + #8) + data,smac);
+			send(84D80001+itoa(len(data) + #8) + data + pre_mac);
+		}
+		else{
+			send(80D80001+totlv(,ver+A18180 + key + A001 + RSA_E  + 00));
+		}
+	}
+}
+func Get_KeyInfo()
+{
+	send(80ca00e000);
+}
+func Get_AppInfo(AID=None)
+{
+	if(AID==None)
+		send(80f24002024f00);
+	else
+		send(80f24002+ totlv(,4f+totlv(,AID)));
+}
+func Install_For_Install(pkgAID,appletAID,appAID,pri,c9Param = 00,efParam = None,withToken = False)
+{
+	
+	if(efParam != None)
+		efParam = totlv(ef,efParam);
+	if(!withToken)
+		token = None;
+	else{
+		message = 0c00+totlv(,totlv(,pkgAID)+totlv(,appletAID)+totlv(,appAID)+totlv(,pri)+totlv(,totlv(c9,c9Param)+efParam));
+		token = rsa_sign(message,tokenKey_N,tokenKey_E,tokenKey_D,tokenKey_P,tokenKey_Q);
+		if(rsa_verify(message,token,tokenKey_N,tokenKey_E))
+			print("token verified!");
+	}
+	send(80E60c00+totlv(,totlv(,pkgAID)+totlv(,appletAID)+totlv(,appAID)+totlv(,pri)+totlv(,totlv(c9,c9Param)+efParam)+totlv(,token)));
+	
+}
+send(0063686c00);
+Select(ISDAID+itoa(#10));
+SCP02_Extern(00,00);
+Put_SCP02_Key(20,kenc1,kmac1,kdek1);
+Get_KeyInfo();
+Put_Key_RSA_Public_Key(tokenKey_Ver,tokenKey_N);
+SCP02_Extern();
+appAID=1122334455;
+for(i=#0;i<#5;i++){
+	Install_For_Install(a0000001515350,a000000151535041,appAID+itoa(i),80,81020255,None,true);
+}
+Get_AppInfo(1122334400);
+
+
