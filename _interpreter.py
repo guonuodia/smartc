@@ -293,9 +293,33 @@ class Interpreter(NodeVisitor):
                 return strValue[len(strValue) + start : len(strValue) + start + 2]
 
     def visit_Assign(self, node):
-        var_name = node.left.value
-        self.GLOBAL_SCOPE[var_name] = self.visit(node.right)
-        return self.GLOBAL_SCOPE[var_name]
+        if isinstance(node.left,HexStrArray):
+            right = node.right
+            node = node.left
+            value = self.GLOBAL_SCOPE.get(node.token.value)
+            strValue = str(value)
+            if node.start is None:
+                start = 0
+            else:
+                start = int(node.start.value) * 2
+            if node.end is None:
+                end = len(strValue)
+            else:
+                end = int(node.end.value) * 2
+            if node.colon == False:
+                if start >= 0:
+                    end = start + 2
+                else:
+                    start = len(strValue) + start
+                    end = len(strValue) + start + 2
+            var_name = node.token.value
+            newValue = self.visit(right)
+            self.GLOBAL_SCOPE[var_name] = value[:start]+newValue+value[end:]
+            return newValue
+        else:
+            var_name = node.left.value
+            self.GLOBAL_SCOPE[var_name] = self.visit(node.right)
+            return self.GLOBAL_SCOPE[var_name]
 
     def visit_FuncDef(self, node):
         self.custom_functions.append(node)
@@ -537,7 +561,8 @@ class Interpreter(NodeVisitor):
         return verified
 
 
-with open('script.txt', 'r') as f:
+#with open('script.txt', 'r') as f:
+with open('caculate.txt', 'r') as f:
     text = f.read()
 lexer = Lexer(text)
 parser = Parser(lexer)
