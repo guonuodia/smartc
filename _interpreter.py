@@ -30,6 +30,7 @@ class Interpreter(NodeVisitor):
         self.continue_loop=False
         self.custom_functions = []
         self.system_functions = ['print','exit','send', 'itoa','atoi','totlv','len',
+                                 'load_cap',
                                  'des_encrypt_ecb','des_decrypt_ecb','des_encrypt_cbc','des_decrypt_cbc','des_mac',
                                  'rsa_enc','rsa_dec','rsa_sign','rsa_verify']  # add more functions as needed
 
@@ -166,7 +167,7 @@ class Interpreter(NodeVisitor):
         elif node.op.type == MODASSIGN:
             self.GLOBAL_SCOPE[node.left.value] %= (int)(self.visit(node.right))
             return self.GLOBAL_SCOPE[node.left.value]
-        elif node.op.type in (PLUS, MINUS,MUL,DIV,EQ,NE,LT,GT,LE,GE,OR,AND,BOR,BXOR,BAND,SHIFTLEFT,SHIFTRIGHT):
+        elif node.op.type in (PLUS, MINUS,MUL,DIV,MOD,EQ,NE,LT,GT,LE,GE,OR,AND,BOR,BXOR,BAND,SHIFTLEFT,SHIFTRIGHT):
             left = self.visit(node.left)
             right = self.visit(node.right)
             if isinstance(left,int):
@@ -186,6 +187,10 @@ class Interpreter(NodeVisitor):
                         if right == 0:
                             Exception("cannot be divided by zero!")
                         return (int)(left / right)
+                    elif node.op.type == MOD:
+                        if right == 0:
+                            Exception("cannot get mode by zero!")
+                        return (int)(left % right)
                     elif node.op.type == EQ:
                         return left == right
                     elif node.op.type == NE:
@@ -279,11 +284,11 @@ class Interpreter(NodeVisitor):
         if node.start is None:
             start = 0
         else:
-            start = int(node.start.value) * 2
+            start = int(self.visit(node.start)) * 2
         if node.end is None:
             end = len(strValue)
         else:
-            end = int(node.end.value) * 2
+            end = int(self.visit(node.end)) * 2
         if node.colon:
             return strValue[start : end]
         else:
@@ -425,9 +430,27 @@ class Interpreter(NodeVisitor):
         return int(hex_str, 16)
     def system_itoa(self,args):
         dec_value = args[0]
-        if int(dec_value) > 255:
+        if int(dec_value) > 65535:
             raise ValueError("Incorrect decimal length")
-        return hex(int(dec_value))[2:].lower().zfill(2)
+        if int(dec_value) > 255:
+            return hex(int(dec_value))[2:].lower().zfill(4)
+        else:
+            return hex(int(dec_value))[2:].lower().zfill(2)
+    def system_load_cap(self,args):
+        path = args[0]
+        try:
+            with open(path, 'rb') as f:
+                binary_data = f.read()
+        except FileNotFoundError:
+            raise ValueError("File not found")
+        cap_data = binary_data[0:0]
+        for cap_type in [b"Header.cap", b"Directory.cap", b"Import.cap",b"Applet.cap",b"Class.cap",b"Method.cap",b"StaticField.cap",b"Export.cap",b"ConstantPool.cap",b"RefLocation.cap"]:
+            cap_pos = binary_data.find(cap_type)
+            if cap_pos != -1:
+                cap_pos += len(cap_type)
+                length = int.from_bytes(binary_data[cap_pos + 1:cap_pos + 3], byteorder="big")
+                cap_data += binary_data[cap_pos:cap_pos + 3 + length]
+        return binascii.hexlify(cap_data).decode()
     def system_des_encrypt_cbc(self,args):
         iv = binascii.unhexlify(args[0].encode())
         plaintext = binascii.unhexlify(args[1].encode())
@@ -561,8 +584,8 @@ class Interpreter(NodeVisitor):
         return verified
 
 
-#with open('script.txt', 'r') as f:
-with open('caculate.txt', 'r') as f:
+with open('script.txt', 'r') as f:
+#with open('caculate.txt', 'r') as f:
     text = f.read()
 lexer = Lexer(text)
 parser = Parser(lexer)
