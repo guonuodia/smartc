@@ -1,9 +1,11 @@
 ﻿import _lexer
 from _lexer import *
+
 class String(object):
-    def __init__(self, token):
+    def __init__(self, token,lineno):
         self.token = token
         self.value = token.value
+        self.lineno = lineno
 
     def __str__(self):
         return str(self.value)
@@ -11,9 +13,10 @@ class String(object):
     def __repr__(self):
         return self.__str__()
 class HexStr(object):
-    def __init__(self, token):
+    def __init__(self, token,lineno):
         self.token = token
         self.value = token.value
+        self.lineno = lineno
 
     def __str__(self):
         return str(self.value)
@@ -21,9 +24,10 @@ class HexStr(object):
     def __repr__(self):
         return self.__str__()
 class Num(object):
-    def __init__(self, token):
+    def __init__(self, token,lineno):
         self.token = token
         self.value = token.value
+        self.lineno = lineno
 
     def __str__(self):
         return str(self.value)
@@ -31,9 +35,10 @@ class Num(object):
     def __repr__(self):
         return self.__str__()
 class Bool(object):
-    def __init__(self, token):
+    def __init__(self, token,lineno):
         self.token = token
         self.value = token.value
+        self.lineno = lineno
 
     def __str__(self):
         return str(self.value)
@@ -41,9 +46,10 @@ class Bool(object):
     def __repr__(self):
         return self.__str__()
 class Var(object):
-    def __init__(self, token):
+    def __init__(self, token,lineno):
         self.token = token
         self.value = token.value
+        self.lineno = lineno
 
     def __str__(self):
         return str(self.value)
@@ -51,12 +57,13 @@ class Var(object):
     def __repr__(self):
         return self.__str__()
 class HexStrArray(object):
-    def __init__(self, token, start, end,colon = True):
+    def __init__(self, token, lineno, start, end,colon = True):
         self.token = token
         self.value = token.value
         self.start = start
         self.end = end
         self.colon = colon
+        self.lineno = lineno
 
     def __str__(self):
         return str(self.value)
@@ -280,14 +287,16 @@ class Parser(object):
     def __init__(self, lexer):
         self.lexer = lexer
         self.current_token = self.lexer.get_next_token()
+        self.lineno = 1
 
     def error(self):
-        print("Invalid syntax at lines: {},position:{},char:{}".format(self.lexer.lines,self.lexer.pos - self.lexer.linesPos,self.lexer.current_char))
+        print("Invalid syntax at lineNum: {},position:{},char:{}".format(self.lexer.lineNum,self.lexer.pos - self.lexer.linesPos,self.lexer.current_char))
         raise Exception('Invalid syntax')
 
     def eat(self, token_type):
         if self.current_token.type == token_type:
             self.current_token = self.lexer.get_next_token()
+            self.lineno = self.lexer.lineNum
         else:
             self.error()
 
@@ -427,19 +436,19 @@ class Parser(object):
             return UnaryOp(token, self.factor())
         elif token.type == BOOL:
             self.eat(BOOL)
-            return Bool(token)
+            return Bool(token,self.lineno)
         elif token.type == NONE:
             self.eat(NONE)
-            return HexStr(Token(HEXSTR,''))
+            return HexStr(Token(HEXSTR,''),self.lineno)
         elif token.type == STRING:
             self.eat(STRING)
-            return String(token)
+            return String(token,self.lineno)
         elif token.type == HEXSTR:
             self.eat(HEXSTR)
-            return HexStr(token)
+            return HexStr(token,self.lineno)
         elif token.type == INTEGER:
             self.eat(INTEGER)
-            return Num(token)
+            return Num(token,self.lineno)
         elif token.type == LPAREN:
             self.eat(LPAREN)
             node = self.expr()
@@ -458,7 +467,6 @@ class Parser(object):
                 self.eat(RPAREN)
                 return FuncCall(token.value, args)
         elif token.type == VAR and self.lexer.peek_next_token().type == LBRACKET:
-            #var = Var(self.current_token)
             self.eat(VAR)
             self.eat(LBRACKET)
             start = self.expr()
@@ -470,27 +478,14 @@ class Parser(object):
                 end = None
                 colon = False
             self.eat(RBRACKET)
-            return HexStrArray(token, start, end,colon)
+            return HexStrArray(token, self.lineno, start, end,colon)
         elif token.type == VAR:
             self.eat(VAR)
-            return Var(token)
-        elif token.type in (COMMA,SEMI,COLON,RBRACKET):
+            return Var(token,self.lineno)
+        elif token.type in (ENTER,COMMA,SEMI,COLON,RBRACKET):
             return None
         else:
             self.error()
-    def term(self):
-        node = self.factor()
-
-        while self.current_token.type in (MUL, DIV):
-            token = self.current_token
-            if token.type == MUL:
-                self.eat(MUL)
-            elif token.type == DIV:
-                self.eat(DIV)
-
-            node = BinOp(left=node, op=token, right=self.factor())
-
-        return node
     def expr(self,pre=0):
         # 解析表达式
         left = self.factor()
@@ -515,39 +510,6 @@ class Parser(object):
             right = self.expr(pre=precedence[token.value])
             left = BinOp(left, token, right)
         return left
-    '''def expr(self):
-        node = self.term()
-        while self.current_token.type in (ASSIGN,PLUSPLUS,MINUSMINUS,PLUSASSIGN,MINUSASSIGN,MULASSIGN,DIVASSIGN,PLUS, MINUS, EQ,NE,LT,GT,LE,GE):
-            token = self.current_token
-            if token.type in (PLUS, MINUS,EQ,NE,LT,GT,LE,GE):
-                self.eat(token.type)
-                node = BinOp(left=node, op=token, right=self.term())
-            elif token.type == ASSIGN:
-                self.eat(ASSIGN)
-                value_node = self.expr()
-                node = Assign(node, value_node)
-            elif isinstance(node,Var):
-                if token.type in (PLUSPLUS,MINUSMINUS):
-                    if token.type == PLUSPLUS:
-                        self.eat(PLUSPLUS)
-                        node = Assign(node, BinOp(node, Token(PLUS,'+'), Num(Token(INTEGER, '1'))))
-                    else:
-                        self.eat(MINUSMINUS)
-                        node = Assign(node, BinOp(node, Token(MINUS,'-'), Num(Token(INTEGER, '1'))))
-                elif token.type in (PLUSASSIGN,MINUSASSIGN,MULASSIGN,DIVASSIGN):
-                    if token.type == PLUSASSIGN:
-                        self.eat(PLUSASSIGN)
-                        node = Assign(node, BinOp(node, Token(PLUS,'+'), self.term()))
-                    elif token.type == MINUSASSIGN:
-                        self.eat(MINUSASSIGN)
-                        node = Assign(node, BinOp(node, Token(MINUS, '-'), self.term()))
-                    elif token.type == MULASSIGN:
-                        self.eat(MULASSIGN)
-                        node = Assign(node, BinOp(node, Token(MUL, '*'), self.term()))
-                    else:
-                        self.eat(DIVASSIGN)
-                        node = Assign(node, BinOp(node, Token(DIV, '/'), self.term()))
-        return node'''
 
     def brace_statement_list(self):
         self.eat(LBRACE)

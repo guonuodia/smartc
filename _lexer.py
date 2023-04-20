@@ -81,16 +81,17 @@ class Token(object):
         return self.__str__()
 
 class Lexer(object):
-    def __init__(self, text):
+    def __init__(self,text):
         self.text = text
         self.pos = 0
-        self.lines = 1
+        self.lineNum = 1
         self.linesPos = 0
         self.current_char = self.text[self.pos]
         self.token = None
+            
 
     def error(self):
-        print("Invalid character at lines: {},position:{},char:{}".format(self.lines,self.pos - self.linesPos,self.current_char))
+        print("Invalid character at lineNum: {},position:{},char:{}".format(self.lineNum,self.pos - self.linesPos,self.current_char))
         raise Exception('Invalid character')
 
     def advance(self):
@@ -99,6 +100,8 @@ class Lexer(object):
             self.current_char = None
         else:
             self.current_char = self.text[self.pos]
+            if self.current_char == b'x09':
+                pass
 
     def peek_next_token(self):
         pos = self.pos
@@ -113,7 +116,7 @@ class Lexer(object):
     def skip_whitespace(self):
         while self.current_char is not None and self.current_char.isspace():
             if self.current_char == '\n':
-                self.lines += 1
+                self.lineNum += 1
                 self.linesPos = self.pos
             self.advance()
     def return_token(self,token):
@@ -128,14 +131,14 @@ class Lexer(object):
                 if self.pos < len(self.text) - 1 and self.text[self.pos + 1] == '/':
                     self.pos = self.text.find('\n', self.pos) + 1
                     self.current_char = self.text[self.pos]
-                    self.lines+=1
+                    self.lineNum+=1
                     self.linesPos = self.pos
                     continue
                 elif self.pos < len(self.text) - 1 and self.text[self.pos + 1] == '*':
                     findCommentEnd = False
                     while self.pos < len(self.text) - 1:
                         if self.text[self.pos] == '\n':
-                            self.lines += 1
+                            self.lineNum += 1
                             self.linesPos = self.pos
                         if self.text[self.pos] == '*' and self.text[self.pos + 1] == '/':
                             self.pos = self.pos + 2
@@ -146,6 +149,7 @@ class Lexer(object):
                         self.error()
                     self.current_char = self.text[self.pos]
                     continue
+            
             if self.current_char == '\"':
                 self.advance()
                 start_pos = self.pos

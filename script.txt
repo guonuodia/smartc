@@ -1,4 +1,5 @@
-/*ISDAID=A00000006203010801;
+
+ISDAID=A00000006203010801;
 kenc1=kmac1=kdek1=505152535455565758595a5b5c5d5e5f;
 senc=;smac=;sdek=;pre_mac=;
 ENC=404142434445464748494a4b4c4d4e4f;
@@ -20,6 +21,7 @@ func Select(AID)
 }
 func SCP02_Extern(ver=00,level=00)
 {
+	Select(1122334455);
 	g_ScpKeyVer = ver;
 	g_SecLevel = level;
 	rnd = b95c2b8c2e671007;
@@ -111,17 +113,17 @@ appAID=1122334455;
 for(i=#0;i<#5;i++){
 	Install_For_Install(a0000001515350,a000000151535041,appAID+itoa(i),80,81020255,None,true);
 }
-Get_AppInfo(1122334400);*/
-func doLoad(CapFilePath,blockSize=#255)
+Get_AppInfo(1122334400);
+func Load(FilePath,E2_tlv = None,blockSize=#255)
 {
-	script=load_cap(CapFilePath);
+	script=load_file(FilePath);
 	len = len(script);
 	if(len < #128)
-		script = C4 + itoa(len) + script;
+		script = E2_tlv + C4 + itoa(len) + script;
 	else if(len < #256)
-		script = C481 + itoa(len) + script;
+		script = E2_tlv + C481 + itoa(len) + script;
 	else
-		script = C482 + itoa(len) + script;
+		script = E2_tlv + C482 + itoa(len) + script;
 	len = len(script);
 	pieces = len / blockSize;
 	reminder = len % blockSize;
@@ -132,6 +134,4 @@ func doLoad(CapFilePath,blockSize=#255)
 	cmd = 80E880+itoa(i)+itoa(reminder)+script[i * blockSize:i * blockSize + reminder];
 	print(cmd);
 }
-doLoad("e:\1www.cap",#100);
-
-
+Load("e:\1www.cap",None,#100);

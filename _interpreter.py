@@ -10,6 +10,49 @@ import rsa
 from Crypto import Random
 import hashlib
 import serial
+import msvcrt
+current_line = 1  # 添加行号计数器
+debug_mode = False
+step_mode = "OVER"
+bp_line_list = [107]
+def get_key():
+    """Wait for a keypress and return the key as a string."""
+    key = msvcrt.getch()
+    if key == b'\x00' or key == b'\xe0':
+        # Handle special keys
+        key = msvcrt.getch()
+        if key == b'H':
+            return 'up'
+        elif key == b'P':
+            return 'down'
+        elif key == b'K':
+            return 'left'
+        elif key == b'M':
+            return 'right'
+        elif key == b'D':
+            return 'F10'
+        elif key == b'\x85':
+            return 'F11'
+        elif key == b'\x3f':
+            return 'F5'
+        else:
+            return ''
+    else:
+        return key.decode('utf-8')
+def cmd_debug_input():
+    print("lineno:{}".format(current_line))
+    while True:
+        print("Press 'F5' key to continue run,'F10' key to step over,'F11' key to step in: ")
+        user_input = get_key()
+        if user_input == 'F10':
+            step_mode = "OVER"
+            break
+        elif user_input == 'F11':
+            step_mode = "IN"
+            break
+        elif user_input == 'F5':
+            step_mode = "RUN"
+            break 
 class ReturnValueException(Exception):
     def __init__(self, value):
         self.value = value
@@ -17,20 +60,31 @@ class NodeVisitor(object):
     def visit(self, node):
         method_name = 'visit_' + type(node).__name__
         visitor = getattr(self, method_name, self.generic_visit)
+        if debug_mode and  type(node).__name__ in ['String', 'HexStr', 'Num', 'Bool', 'Var', 'HexStrArray']:
+            if node.lineno != current_line:
+                if step_mode == "RUN" and node.lineno not in bp_line_list:
+                    pass
+                elif self.step_over_function == True and step_mode == "OVER" and node.lineno != current_line + 1 and node.lineno not in bp_line_list:
+                    pass
+                else:
+                    self.step_over_function = False
+                    current_line = node.lineno
+                    cmd_debug_input()               
         return visitor(node)
 
     def generic_visit(self, node):
         raise Exception('No visit_{} method'.format(type(node).__name__))
 class Interpreter(NodeVisitor):
-    def __init__(self, parser):
+    def __init__(self,parser):
         self.parser = parser
         self.GLOBAL_SCOPE = {}
         self.log=''
         self.break_loop=False
         self.continue_loop=False
+        self.step_over_function = False
         self.custom_functions = []
         self.system_functions = ['print','exit','send', 'itoa','atoi','totlv','len',
-                                 'load_cap',
+                                 'load_file',
                                  'des_encrypt_ecb','des_decrypt_ecb','des_encrypt_cbc','des_decrypt_cbc','des_mac',
                                  'rsa_enc','rsa_dec','rsa_sign','rsa_verify']  # add more functions as needed
 
@@ -306,11 +360,11 @@ class Interpreter(NodeVisitor):
             if node.start is None:
                 start = 0
             else:
-                start = int(node.start.value) * 2
+                start = int(self.visit(node.start)) * 2
             if node.end is None:
                 end = len(strValue)
             else:
-                end = int(node.end.value) * 2
+                end = int(self.visit(node.end)) * 2
             if node.colon == False:
                 if start >= 0:
                     end = start + 2
@@ -345,7 +399,6 @@ class Interpreter(NodeVisitor):
                     func_def = node
                     len_args = len(args)
                     for i, arg in enumerate(func_def.args):
-                        #if i >= len(func_def.args) - len(func_def.defaults):
                         if i >= len_args:
                             default_value = func_def.defaults.get(arg, None)
                             if default_value is not None:
@@ -365,7 +418,9 @@ class Interpreter(NodeVisitor):
                     self.GLOBAL_SCOPE.update(local_scope)
                     new_GLOBAL_SCOPE1 = self.GLOBAL_SCOPE.copy()
                     try:
+                        self.step_over_function = True
                         self.visit(func_def.body)
+                        self.step_over_function = False
                         new_GLOBAL_SCOPE2 = {k: v for k, v in self.GLOBAL_SCOPE.items() if k not in new_GLOBAL_SCOPE1}
                         new_GLOBAL_SCOPE3 = {k: v for k, v in self.GLOBAL_SCOPE.items() if k not in new_GLOBAL_SCOPE2 and k not in local_scope}
                         self.GLOBAL_SCOPE = new_GLOBAL_SCOPE3
@@ -379,8 +434,7 @@ class Interpreter(NodeVisitor):
 
     def interpret(self):
         tree = self.parser.parse()
-        return self.visit(tree)
-
+        self.visit(tree)
     def system_print(self, args):
         values = [arg for arg in args]
         print(*values)
@@ -413,7 +467,7 @@ class Interpreter(NodeVisitor):
         elif cmd == '80E60c002907a000000151535008a00000015153504105112233444401800ec90481020255ef06cf0141cf014200':
             data = '009000'
         self.log += "<<" + str(data) + '\r\n'
-        return HexStr(Token(HEXSTR,data))
+        return data
     def system_totlv(self,args):
         tag = args[0]
         value = args[1]
@@ -436,21 +490,24 @@ class Interpreter(NodeVisitor):
             return hex(int(dec_value))[2:].lower().zfill(4)
         else:
             return hex(int(dec_value))[2:].lower().zfill(2)
-    def system_load_cap(self,args):
+    def system_load_file(self,args):
         path = args[0]
         try:
             with open(path, 'rb') as f:
                 binary_data = f.read()
         except FileNotFoundError:
             raise ValueError("File not found")
-        cap_data = binary_data[0:0]
-        for cap_type in [b"Header.cap", b"Directory.cap", b"Import.cap",b"Applet.cap",b"Class.cap",b"Method.cap",b"StaticField.cap",b"Export.cap",b"ConstantPool.cap",b"RefLocation.cap"]:
-            cap_pos = binary_data.find(cap_type)
-            if cap_pos != -1:
-                cap_pos += len(cap_type)
-                length = int.from_bytes(binary_data[cap_pos + 1:cap_pos + 3], byteorder="big")
-                cap_data += binary_data[cap_pos:cap_pos + 3 + length]
-        return binascii.hexlify(cap_data).decode()
+        if path[-3:] =='cap':
+            cap_data = binary_data[0:0]
+            for cap_type in [b"Header.cap", b"Directory.cap", b"Import.cap",b"Applet.cap",b"Class.cap",b"Method.cap",b"StaticField.cap",b"Export.cap",b"ConstantPool.cap",b"RefLocation.cap"]:
+                cap_pos = binary_data.find(cap_type)
+                if cap_pos != -1:
+                    cap_pos += len(cap_type)
+                    length = int.from_bytes(binary_data[cap_pos + 1:cap_pos + 3], byteorder="big")
+                    cap_data += binary_data[cap_pos:cap_pos + 3 + length]
+            return binascii.hexlify(cap_data).decode()
+        elif path[-3:] =='elf':
+            return binascii.hexlify(binary_data).decode()
     def system_des_encrypt_cbc(self,args):
         iv = binascii.unhexlify(args[0].encode())
         plaintext = binascii.unhexlify(args[1].encode())
@@ -583,13 +640,14 @@ class Interpreter(NodeVisitor):
         # Return True if the signature is valid, False otherwise
         return verified
 
-
 with open('script.txt', 'r') as f:
-#with open('caculate.txt', 'r') as f:
     text = f.read()
 lexer = Lexer(text)
 parser = Parser(lexer)
 interpreter = Interpreter(parser)
+debug_mode = True
+if debug_mode:
+    cmd_debug_input()
 interpreter.interpret()
 print(interpreter.log)
 
